@@ -23,11 +23,11 @@ constexpr int INVALID_ID = -1;
   
 class cell_t {
 public:
-  void init (const int id);
+  void init (const int id, std::vector<cell_t> &cells);
   void read ();
   inline int id () const { return m_id; }
   inline int beacon () const { return m_beacon; }
-  inline const std::array<int, NEIGH_SIZE> &neighs () const { return m_neigh; }
+  inline const std::vector<cell_t*> &neighs () const { return m_neigh_cells; }
   inline bool is_egg () const { return m_type == 1 && m_resources > 0; }
   inline int resources () const { return m_resources; }
   inline int ants (const int player_id) { return m_ants[player_id]; }
@@ -39,6 +39,8 @@ private:
   int m_beacon = -1;
   std::array<int, NEIGH_SIZE> m_neigh;
   std::array<int, PLAYER_SIZE> m_ants;
+
+  std::vector<cell_t*> m_neigh_cells;
 };
 class map_t {
 public:
@@ -73,7 +75,7 @@ private:
   std::unique_ptr<map_t> m_map;
   std::vector<cell_t *> m_aims;
 
-  void fill_bacons ();
+  void fill_beacons ();
 
   inline int dist (const int from, const int to) { return (*m_map) (from, to); }
 
@@ -88,11 +90,15 @@ private:
   void stop_step_timer ();
 };
 
-void cell_t::init (const int id) {
+void cell_t::init (const int id, std::vector<cell_t> &cells) {
   m_id = id;
+  m_neigh_cells.reserve (NEIGH_SIZE);
   std::cin >> m_type >> m_resources; std::cin.ignore ();
-  for (int &neigh_id : m_neigh)
+  for (int &neigh_id : m_neigh) {
     std::cin >> neigh_id, std::cin.ignore ();
+    if (neigh_id != INVALID_ID)
+      m_neigh_cells.push_back (&cells[neigh_id]);
+  }
 }
 void cell_t::read () {
   std::cin >> m_resources >> m_ants[0] >> m_ants[1]; std::cin.ignore ();
@@ -116,9 +122,9 @@ map_t::map_t (const std::vector<cell_t> &cells)
       if (m_dist[cell_from.id ()][cell_to.id ()] <= dist)
         continue;
       m_dist[cell_from.id ()][cell_to.id ()] = dist;
-      for (const int neigh_id : cell_to.neighs ())
-        if (neigh_id != INVALID_ID && m_dist[cell_from.id ()][neigh_id] > dist + 1)
-          q.push ({m_cells[neigh_id], dist + 1});
+      for (const cell_t * const next_cell : cell_to.neighs ())
+        if (m_dist[cell_from.id ()][next_cell->id ()] > dist + 1)
+          q.push ({*next_cell, dist + 1});
     }
   }
 }
@@ -148,7 +154,7 @@ game_t::game_t () {
   std::cin >> number_of_cells; std::cin.ignore ();
   m_cells.resize (number_of_cells);
   for (int i_cell = 0; i_cell < number_of_cells; ++i_cell)
-    m_cells[i_cell].init (i_cell);
+    m_cells[i_cell].init (i_cell, m_cells);
   m_aims.reserve (number_of_cells);
   int number_of_bases;
   std::cin >> number_of_bases; std::cin.ignore ();
@@ -177,7 +183,7 @@ void game_t::play_step () {
   //       commit_line (cell_id_from, cell.id (), 1);
   //       //cell_id_from = cell.id ();
   //     }
-  fill_bacons ();
+  fill_beacons ();
   //for (const cell_t &cell : m_cells)
   //  if (cell.beacon () > 0)
   //    commit_beacon (cell.id (), cell.beacon ());
@@ -185,10 +191,10 @@ void game_t::play_step () {
   stop_step_timer ();
   std::cout << m_actions_text << std::endl;
 }
-void game_t::fill_bacons () {
+void game_t::fill_beacons () {
   std::unordered_set<cell_t*> path;
   for (cell_t * const base_cell : m_players[0].bases ())
-    path.insert (base_cell), commit_beacon (base_cell->id (), 1);;
+    path.insert (base_cell), commit_beacon (base_cell->id (), 1);
 
   std::unordered_set<cell_t *> aims (m_aims.begin (), m_aims.end ());
   struct temp_data_t { int min_dis, val_cnt; };
@@ -197,9 +203,9 @@ void game_t::fill_bacons () {
   while (!aims.empty () && static_cast<int> (path.size ()) < m_players[0].ants_cnt ()) {
     candidates.clear ();
     for (const cell_t * const cell_from : path)
-      for (const int neigh_id : cell_from->neighs ())
-        if (neigh_id != INVALID_ID && !path.count (&m_cells[neigh_id])) {
-          const auto it_ins = candidates.insert ({&m_cells[neigh_id], temp_data_t {INF, 0}});
+      for (cell_t * const next_cell : cell_from->neighs ())
+        if (!path.count (&*next_cell)) {
+          const auto it_ins = candidates.insert ({&*next_cell, temp_data_t {INF, 0}});
           if (!it_ins.second)
             continue;
           const cell_t * const new_cell = it_ins.first->first;
