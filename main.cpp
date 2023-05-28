@@ -191,7 +191,7 @@ void game_t::fill_bacons () {
     path.insert (base_cell), commit_beacon (base_cell->id (), 1);;
 
   std::unordered_set<cell_t *> aims (m_aims.begin (), m_aims.end ());
-  struct temp_data_t { int min_dis, sum_dis; };
+  struct temp_data_t { int min_dis, val_cnt; };
   std::unordered_map<cell_t *, temp_data_t> candidates;
 
   while (!aims.empty () && static_cast<int> (path.size ()) < m_players[0].ants_cnt ()) {
@@ -206,8 +206,10 @@ void game_t::fill_bacons () {
           temp_data_t &new_cell_val = it_ins.first->second;
           for (const cell_t * const aim_cell : aims) {
             const int dist_to_aim = dist (new_cell->id (), aim_cell->id ());
-            new_cell_val.min_dis = std::min (new_cell_val.min_dis, dist_to_aim);
-            new_cell_val.sum_dis += dist_to_aim;
+            if (new_cell_val.min_dis > dist_to_aim)
+              new_cell_val = temp_data_t {dist_to_aim, aim_cell->resources ()};
+            else if (new_cell_val.min_dis == dist_to_aim)
+              new_cell_val.val_cnt += aim_cell->resources ();
           }
     }   
     if (candidates.empty ())
@@ -216,11 +218,11 @@ void game_t::fill_bacons () {
       [this] (const auto &a, const auto &b) {
         if (a.second.min_dis != b.second.min_dis)
           return a.second.min_dis < b.second.min_dis;
-        return a.second.sum_dis < b.second.sum_dis;
+        return a.second.val_cnt > b.second.val_cnt;
       });
     path.insert (add_cell->first);
     aims.erase (add_cell->first);
-    std::cerr << "# " << add_cell->first->id () << " " << add_cell->second.min_dis << " " << add_cell->second.sum_dis << std::endl;
+    //std::cerr << "# " << add_cell->first->id () << " " << add_cell->second.min_dis << " " << add_cell->second.val_cnt << std::endl;
     commit_beacon (add_cell->first->id (), 1);
   }
 
