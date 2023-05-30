@@ -58,6 +58,7 @@ private:
 class player_t {
 public:
   void init (const int id, const int number_of_bases, std::vector<cell_t> &cells);
+  void read_score () { std::cin >> m_score; std::cin.ignore (); };
   void update_step (std::vector<cell_t> &cells);
   inline const std::vector<cell_t*> &bases () const { return m_bases; }
   inline cell_t &base () const { return *m_bases.front (); }
@@ -67,6 +68,7 @@ public:
 private:
   int m_id = INVALID_ID;
   std::vector<cell_t*> m_bases;
+  int m_score = -1;
 
   int m_ants_cnt;
   int m_ants_cnt_free;
@@ -178,6 +180,8 @@ void game_t::read_step () {
   start_step_timer ();
   m_actions_text = "";
   m_aims.clear ();
+  for (player_t &player : m_players)
+    player.read_score ();
   for (cell_t &cell : m_cells) {
     cell.read ();
     if (cell.resources () > 0)
@@ -230,10 +234,12 @@ void game_t::fill_beacons () {
     if (candidates.empty ())
       break;
     const auto &best_cond_it = std::min_element (candidates.begin (), candidates.end (),
-      [] (const auto &a, const auto &b) {
+      [this] (const auto &a, const auto &b) {
         if (a.second.min_dis != b.second.min_dis)
           return a.second.min_dis < b.second.min_dis;
-        return a.second.val_cnt > b.second.val_cnt;
+        if (a.second.val_cnt != b.second.val_cnt)
+          return a.second.val_cnt > b.second.val_cnt;
+        return dist (a.first->id (), m_players[0].bases ().front ()->id ()) < dist (b.first->id (), m_players[0].bases ().front ()->id ());
       });
     cell_t * const add_cell = best_cond_it->first;
     const cell_t * const parent_cell = best_cond_it->second.parent;
