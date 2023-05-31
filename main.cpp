@@ -27,6 +27,7 @@ public:
   void read ();
   inline int id () const { return m_id; }
   inline int beacon () const { return m_beacon; }
+  inline int opp_chain_val () const { return m_opp_chain_val; }
   inline const std::vector<cell_t*> &neighs () const { return m_neigh_cells; }
   inline bool is_egg () const { return m_type == 1 && m_resources > 0; }
   inline int resources () const { return m_resources; }
@@ -34,6 +35,7 @@ public:
   inline void add_beacon (const int val = 1) { m_beacon += val; }
   inline int set_min_beacon (const int min_val) { const int add_val = std::max (min_val - m_beacon, 0); m_beacon += add_val; return add_val; }
   inline void set_chain_parent (const cell_t * const parent) { if (!parent) m_chain_len = 0; else { m_chain_len = parent->m_chain_len + 1; m_chain_parent = parent; }}
+  inline void set_opp_chain_val (const int opp_chain_val) { m_opp_chain_val = opp_chain_val; }
 private:
   int m_id = INVALID_ID;
   int m_type = -1;
@@ -46,6 +48,8 @@ private:
 
   int m_chain_len = -1; // for computing on step
   const cell_t *m_chain_parent = nullptr; // for computing on step
+
+  int m_opp_chain_val = -1; // enemy
 };
 class map_t {
 public:
@@ -65,6 +69,7 @@ public:
   inline int ants_cnt () const { return m_ants_cnt; }
   inline int ants_cnt_free () const { return m_ants_cnt_free; }
   inline void use_ants (const int cnt) { m_ants_cnt_free -= cnt; }
+  inline int id () const { return m_id; }
 private:
   int m_id = INVALID_ID;
   std::vector<cell_t*> m_bases;
@@ -85,6 +90,7 @@ private:
   std::unique_ptr<map_t> m_map;
   std::vector<cell_t *> m_aims;
 
+  void compute_enemy_chain ();
   void fill_beacons ();
   void set_min_beacon (cell_t &cell, const int min_beacon);
 
@@ -114,6 +120,7 @@ void cell_t::init (const int id, std::vector<cell_t> &cells) {
 void cell_t::read () {
   std::cin >> m_resources >> m_ants[0] >> m_ants[1]; std::cin.ignore ();
   m_beacon = 0;
+  m_opp_chain_val = 0;
   m_chain_len = -1;
   m_chain_parent = nullptr;
 }
@@ -191,14 +198,60 @@ void game_t::read_step () {
     player.update_step (m_cells);
 }
 void game_t::play_step () {
+  //compute_enemy_chain ();
   fill_beacons ();
   commit_wait ();
   stop_step_timer ();
   std::cout << m_actions_text << std::endl;
 }
+void game_t::compute_enemy_chain () {
+  const player_t &enemy = m_players[1];
+  struct temp_data_t {
+    const cell_t *parent;
+    int min_ants_cnt;
+  };
+  std::unordered_map<cell_t *, temp_data_t> path; // cell -> parent
+  std::queue<temp_data_t> q;
+  for (cell_t * const base_cell : enemy.bases ()) {
+    q.push ({base_cell, base_cell->ants (enemy.id ())});
+    path.insert ({base_cell, temp_data_t {nullptr, base_cell->ants (enemy.id ())}});
+  }
+
+  std::unordered_set<cell_t *> edges;
+  while (!q.empty ()) {
+    const cell_t * const parent = q.front ().parent;
+    const int min_ants_cnt = q.front ().min_ants_cnt;
+    q.pop ();
+    for (cell_t * const next_cell : parent->neighs ()) {
+      if (next_cell->ants (enemy.id ()) <= 0)
+        continue;
+      const int new_min_ants_cnt = std::min (next_cell->ants (enemy.id ()), min_ants_cnt);
+      if (path.count (next_cell)) {
+        temp_data_t &temp_data = path[next_cell];
+        if (temp_data.min_ants_cnt < new_min_ants_cnt) {
+          temp_data.min_ants_cnt = new_min_ants_cnt;
+          q.push ({next_cell, new_min_ants_cnt});
+        }
+      }
+      else {
+        path.insert ({next_cell, temp_data_t {parent, new_min_ants_cnt}});
+        q.push ({next_cell, new_min_ants_cnt});
+      }
+    }
+  }
+  for (auto &path_el : path) {
+    cell_t * const cell = path_el.first;
+    const int min_ants_cnt = path_el.second.min_ants_cnt;
+    cell->set_opp_chain_val (min_ants_cnt);
+  }
+  //for (const cell_t &cell : m_cells)
+  //  if (cell.opp_chain_val () > 0)
+  //    std::cerr << "# " << cell.id () << " " << cell.opp_chain_val () << std::endl;
+}
 void game_t::fill_beacons () {
+  const player_t &iam = m_players[0];
   std::unordered_set<cell_t*> path;
-  for (cell_t * const base_cell : m_players[0].bases ()) {
+  for (cell_t * const base_cell : iam.bases ()) {
     path.insert (base_cell);
     base_cell->set_chain_parent (nullptr);
     base_cell->set_min_beacon (1);
@@ -211,7 +264,7 @@ void game_t::fill_beacons () {
   };
   std::unordered_map<cell_t *, temp_data_t> candidates;
 
-  while (!aims.empty () && static_cast<int> (path.size ()) < m_players[0].ants_cnt () && m_players[0].ants_cnt_free () > 0) {
+  while (!aims.empty () && static_cast<int> (path.size ()) < iam.ants_cnt () && iam.ants_cnt_free () > 0) {
     candidates.clear ();
     for (const cell_t * const cell_from : path)
       for (cell_t * const next_cell : cell_from->neighs ())
@@ -234,12 +287,12 @@ void game_t::fill_beacons () {
     if (candidates.empty ())
       break;
     const auto &best_cond_it = std::min_element (candidates.begin (), candidates.end (),
-      [this] (const auto &a, const auto &b) {
+      [this, &iam] (const auto &a, const auto &b) {
         if (a.second.min_dis != b.second.min_dis)
           return a.second.min_dis < b.second.min_dis;
         if (a.second.val_cnt != b.second.val_cnt)
           return a.second.val_cnt > b.second.val_cnt;
-        return dist (a.first->id (), m_players[0].bases ().front ()->id ()) < dist (b.first->id (), m_players[0].bases ().front ()->id ());
+        return dist (a.first->id (), iam.bases ().front ()->id ()) < dist (b.first->id (), iam.bases ().front ()->id ());
       });
     cell_t * const add_cell = best_cond_it->first;
     const cell_t * const parent_cell = best_cond_it->second.parent;
