@@ -26,7 +26,7 @@ constexpr double EGGS_KOEF_LV_MAX = 10.;
 constexpr double EGGS_KOEF_LV_MAX_BUT_NO_CRYSTALS = 2.;
 constexpr double EGGS_KOEF_LV_NORMAL = 3.;
 constexpr double EGGS_KOEF_LV_NORMAL_BUT_NO_CRYSTALS = .5;
-constexpr double ANTS_STOP_COLLECT_EAGS = 1;
+constexpr double ANTS_STOP_COLLECT_EGGS = 1;
 
 class player_t;
 
@@ -101,8 +101,12 @@ private:
   std::array<player_t, PLAYER_SIZE> m_players;
   std::unique_ptr<map_t> m_map;
   std::vector<cell_t *> m_aims;
+  std::vector<cell_t *> m_egg_cells;
   int m_crystals = -1;
   int m_eggs = -1;
+
+  bool m_inital_read = true;
+  std::vector<cell_t *> m_initial_aims; // for each base
 
   void compute_aims ();
   void compute_enemy_chain ();
@@ -198,6 +202,7 @@ game_t::game_t () {
   for (int i_cell = 0; i_cell < number_of_cells; ++i_cell)
     m_cells[i_cell].init (i_cell, m_cells);
   m_aims.reserve (number_of_cells);
+  m_egg_cells.reserve (number_of_cells);
   int number_of_bases;
   std::cin >> number_of_bases; std::cin.ignore ();
   for (int i_player = 0; i_player < PLAYER_SIZE; i_player++)
@@ -208,10 +213,64 @@ void game_t::read_step () {
   start_step_timer ();
   m_actions_text = "";
   m_aims.clear ();
+  m_egg_cells.clear ();
+  m_crystals = 0;
+  m_eggs = 0;
   for (player_t &player : m_players)
     player.read_score ();
-  for (cell_t &cell : m_cells)
+
+  for (cell_t &cell : m_cells) {
     cell.read ();
+    if (cell.is_egg ()) {
+      m_egg_cells.push_back (&cell);
+      m_eggs += cell.resources ();
+    }
+    else if (cell.resources () > 0) {
+      m_crystals += cell.resources ();
+    }
+  }
+  if (m_inital_read) {
+    const cell_t *last_best_base = nullptr;
+    const cell_t *last_best_egg = nullptr;
+    std::vector<const cell_t *> my_bases_to_find_aim;
+    for (const cell_t * const base_cell : m_players[0].bases ()) {
+      bool aim_near_was = false;
+      for (cell_t * const next_cell : base_cell->neighs ()) {
+        if (next_cell->is_egg ()) {
+          m_initial_aims.push_back (next_cell);
+          aim_near_was = true;
+        }
+      }
+      if (!aim_near_was)
+        my_bases_to_find_aim.push_back (base_cell);
+    }
+    const size_t aim_near_cnt = m_initial_aims.size ();
+    while (m_initial_aims.size () - aim_near_cnt < my_bases_to_find_aim.size () && m_initial_aims.size () < m_egg_cells.size ()) {
+      const cell_t *best_base = nullptr;
+      cell_t *best_egg = nullptr;
+      int best_dist = INF;
+      for (cell_t * const egg_cell : m_egg_cells) {
+        if (last_best_egg == egg_cell) continue;
+        for (const cell_t * const base_cell : my_bases_to_find_aim) {
+          if (last_best_base == base_cell) continue;
+          const int temp_dist = dist (base_cell->id (), egg_cell->id ());
+          if (    temp_dist < best_dist
+              || (temp_dist == best_dist && egg_cell->resources () > best_egg->resources ())) {
+            best_dist = temp_dist;
+            best_base = base_cell;
+            best_egg = egg_cell;
+          }
+        }
+      }
+      last_best_base = best_base;
+      last_best_egg = best_egg;
+      m_initial_aims.push_back (best_egg);
+    }
+    if (m_initial_aims.size () == m_egg_cells.size () && m_egg_cells.size () == 2)
+      m_initial_aims.pop_back ();
+    m_inital_read = false;
+  }
+
   for (player_t &player : m_players)
     player.update_step (m_cells);
 }
@@ -227,22 +286,31 @@ void game_t::compute_aims () {
   const player_t &iam = m_players[0];
   const player_t &enemy = m_players[1];
 
-  //int nearest_crystal
-  m_crystals = 0;
-  m_eggs = 0;
-  for (cell_t &cell : m_cells) {
-    if (cell.resources () > 0) {
-      if (cell.is_egg ()) m_eggs += cell.resources ();
-      else                m_crystals += cell.resources ();
+  if (!m_initial_aims.empty ()) {
+    bool stop_initial_aims = false;
+    for (const cell_t * const aim_cell : m_initial_aims)
+      if (aim_cell->resources () <= 0) {
+        stop_initial_aims = true;
+        break;
+      }
+
+    if (stop_initial_aims || (m_crystals < m_eggs && iam.ants_cnt () > enemy.ants_cnt () * 1.2) || m_crystals < iam.ants_cnt ())
+      m_initial_aims.clear ();
+    else {
+      for (cell_t * const aim_cell : m_initial_aims) {
+        m_aims.push_back (aim_cell);
+        aim_cell->set_resources_value (1./*eggs_koef*/, 1./*crystals_koef*/);
+      }
+      return;
     }
   }
 
   const int score_to_win = (iam.score () + enemy.score () + m_crystals) / 2;
-  const bool stop_collect_eags = iam.score () + iam.ants_cnt () * ANTS_STOP_COLLECT_EAGS >= score_to_win;
+  const bool stop_collect_eggs = iam.score () + iam.ants_cnt () * ANTS_STOP_COLLECT_EGGS >= score_to_win;
 
   for (cell_t &cell : m_cells) {
     if (cell.resources () > 0) {
-      if (stop_collect_eags && cell.is_egg ())
+      if (stop_collect_eggs && cell.is_egg ())
         continue;
       m_aims.push_back (&cell);
     }
@@ -317,6 +385,7 @@ void game_t::fill_beacons () {
   std::unordered_map<cell_t*, int> path;
   //std::vector<std::unordered_map<cell_t*, int>> lines;
   //std::unordered_map<cell_t*, int> *new_line;
+  //bool beacon_to_base = true; // TO-DO: don't set beackon on base if eggs reached
 
   for (cell_t * const base_cell : iam.bases ()) {
     path.insert ({base_cell, 1});
