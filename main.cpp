@@ -229,6 +229,10 @@ void game_t::read_step () {
       m_crystals += cell.resources ();
     }
   }
+
+  for (player_t &player : m_players)
+    player.update_step (m_cells);
+
   if (m_inital_read) {
     const cell_t *last_best_base = nullptr;
     const cell_t *last_best_egg = nullptr;
@@ -262,6 +266,9 @@ void game_t::read_step () {
           }
         }
       }
+      std::cerr << best_egg->id () << " " << best_dist << std::endl;
+      if (best_dist > 4 || best_dist * 3 > m_players[0].ants_cnt ())
+        break;
       last_best_base = best_base;
       last_best_egg = best_egg;
       m_initial_aims.push_back (best_egg);
@@ -270,9 +277,6 @@ void game_t::read_step () {
       m_initial_aims.pop_back ();
     m_inital_read = false;
   }
-
-  for (player_t &player : m_players)
-    player.update_step (m_cells);
 }
 void game_t::play_step () {
   compute_aims ();
