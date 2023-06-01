@@ -249,18 +249,19 @@ void game_t::compute_aims () {
   }
 
   double eggs_koef = 1. * iam.bases ().size ();
-  if (iam.ants_cnt () <= enemy.ants_cnt ()) {
-    if (m_crystals > CRYSTAL_PER_ANT_TO_MAXIMIZE_EGGS * iam.ants_cnt ())
-      eggs_koef *= EGGS_KOEF_LV_MAX;
-    else
-      eggs_koef *= EGGS_KOEF_LV_MAX_BUT_NO_CRYSTALS;
-  }
-  else {
-    if (m_crystals > CRYSTAL_PER_ANT_TO_MAXIMIZE_EGGS * iam.ants_cnt ())
-      eggs_koef *= EGGS_KOEF_LV_NORMAL;
-    else
-      eggs_koef *= EGGS_KOEF_LV_NORMAL_BUT_NO_CRYSTALS;
-  }
+  //if (iam.ants_cnt () <= enemy.ants_cnt ()) {
+  //  if (m_crystals > CRYSTAL_PER_ANT_TO_MAXIMIZE_EGGS * iam.ants_cnt ())
+  //    eggs_koef *= EGGS_KOEF_LV_MAX;
+  //  else
+  //    eggs_koef *= EGGS_KOEF_LV_MAX_BUT_NO_CRYSTALS;
+  //}
+  //else {
+  //  if (m_crystals > CRYSTAL_PER_ANT_TO_MAXIMIZE_EGGS * iam.ants_cnt ())
+  //    eggs_koef *= EGGS_KOEF_LV_NORMAL;
+  //  else
+  //    eggs_koef *= EGGS_KOEF_LV_NORMAL_BUT_NO_CRYSTALS;
+  //}
+  eggs_koef = 1. * m_crystals / m_eggs * iam.bases ().size ();
 
   double crystals_koef = 1.;
 
