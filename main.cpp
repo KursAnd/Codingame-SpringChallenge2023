@@ -26,6 +26,7 @@ constexpr double EGGS_KOEF_LV_MAX = 10.;
 constexpr double EGGS_KOEF_LV_MAX_BUT_NO_CRYSTALS = 2.;
 constexpr double EGGS_KOEF_LV_NORMAL = 3.;
 constexpr double EGGS_KOEF_LV_NORMAL_BUT_NO_CRYSTALS = .5;
+constexpr double ANTS_STOP_COLLECT_EAGS = 1;
 
 class player_t;
 
@@ -236,11 +237,13 @@ void game_t::compute_aims () {
     }
   }
 
-  //const int score_to_win = (iam.score () + enemy.score () + m_crystals) / 2;
-  //if (iam.score () + iam.ants_cnt () * )
+  const int score_to_win = (iam.score () + enemy.score () + m_crystals) / 2;
+  const bool stop_collect_eags = iam.score () + iam.ants_cnt () * ANTS_STOP_COLLECT_EAGS >= score_to_win;
 
   for (cell_t &cell : m_cells) {
     if (cell.resources () > 0) {
+      if (stop_collect_eags && cell.is_egg ())
+        continue;
       m_aims.push_back (&cell);
     }
   }
