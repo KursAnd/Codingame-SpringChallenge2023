@@ -20,17 +20,27 @@ constexpr int NEIGH_SIZE = 6;
 constexpr int PLAYER_SIZE = 2;
 constexpr int INF = 1000000000;
 constexpr int INVALID_ID = -1;
-  
+
+constexpr int CRYSTAL_PER_ANT_TO_MAXIMIZE_EGGS = 10;
+constexpr double EGGS_KOEF_LV_MAX = 10.;
+constexpr double EGGS_KOEF_LV_MAX_BUT_NO_CRYSTALS = 2.;
+constexpr double EGGS_KOEF_LV_NORMAL = 3.;
+constexpr double EGGS_KOEF_LV_NORMAL_BUT_NO_CRYSTALS = .5;
+
+class player_t;
+
 class cell_t {
 public:
   void init (const int id, std::vector<cell_t> &cells);
   void read ();
+  void set_resources_value (const double eggs_koef, const double crystals_coef);
   inline int id () const { return m_id; }
   inline int beacon () const { return m_beacon; }
   inline int opp_chain_val () const { return m_opp_chain_val; }
   inline const std::vector<cell_t*> &neighs () const { return m_neigh_cells; }
   inline bool is_egg () const { return m_type == 1 && m_resources > 0; }
   inline int resources () const { return m_resources; }
+  inline int resources_value () const { return m_resources_value; }
   inline int ants (const int player_id) { return m_ants[player_id]; }
   inline void add_beacon (const int val = 1) { m_beacon += val; }
   inline int set_min_beacon (const int min_val) { const int add_val = std::max (min_val - m_beacon, 0); m_beacon += add_val; return add_val; }
@@ -40,6 +50,7 @@ private:
   int m_id = INVALID_ID;
   int m_type = -1;
   int m_resources = -1;
+  int m_resources_value = -1;
   int m_beacon = -1;
   std::array<int, NEIGH_SIZE> m_neigh;
   std::array<int, PLAYER_SIZE> m_ants;
@@ -65,11 +76,11 @@ public:
   void read_score () { std::cin >> m_score; std::cin.ignore (); };
   void update_step (std::vector<cell_t> &cells);
   inline const std::vector<cell_t*> &bases () const { return m_bases; }
-  inline cell_t &base () const { return *m_bases.front (); }
   inline int ants_cnt () const { return m_ants_cnt; }
   inline int ants_cnt_free () const { return m_ants_cnt_free; }
   inline void use_ants (const int cnt) { m_ants_cnt_free -= cnt; }
   inline int id () const { return m_id; }
+  inline int score () const { return m_score; }
 private:
   int m_id = INVALID_ID;
   std::vector<cell_t*> m_bases;
@@ -89,7 +100,10 @@ private:
   std::array<player_t, PLAYER_SIZE> m_players;
   std::unique_ptr<map_t> m_map;
   std::vector<cell_t *> m_aims;
+  int m_crystals = -1;
+  int m_eggs = -1;
 
+  void compute_aims ();
   void compute_enemy_chain ();
   void fill_beacons ();
   void set_min_beacon (cell_t &cell, const int min_beacon);
@@ -119,10 +133,16 @@ void cell_t::init (const int id, std::vector<cell_t> &cells) {
 }
 void cell_t::read () {
   std::cin >> m_resources >> m_ants[0] >> m_ants[1]; std::cin.ignore ();
+  m_resources_value = 0;
   m_beacon = 0;
   m_opp_chain_val = 0;
   m_chain_len = -1;
   m_chain_parent = nullptr;
+}
+
+void cell_t::set_resources_value (const double eggs_koef, const double crystals_coef) {
+  const double koef = is_egg () ? eggs_koef : crystals_coef;
+  m_resources_value = m_resources * koef;
 }
 
 map_t::map_t (const std::vector<cell_t> &cells)
@@ -189,20 +209,60 @@ void game_t::read_step () {
   m_aims.clear ();
   for (player_t &player : m_players)
     player.read_score ();
-  for (cell_t &cell : m_cells) {
+  for (cell_t &cell : m_cells)
     cell.read ();
-    if (cell.resources () > 0)
-      m_aims.push_back (&cell);
-  }
   for (player_t &player : m_players)
     player.update_step (m_cells);
 }
 void game_t::play_step () {
+  compute_aims ();
   compute_enemy_chain ();
   fill_beacons ();
   commit_wait ();
   stop_step_timer ();
   std::cout << m_actions_text << std::endl;
+}
+void game_t::compute_aims () {
+  const player_t &iam = m_players[0];
+  const player_t &enemy = m_players[1];
+
+  //int nearest_crystal
+  m_crystals = 0;
+  m_eggs = 0;
+  for (cell_t &cell : m_cells) {
+    if (cell.resources () > 0) {
+      if (cell.is_egg ()) m_eggs += cell.resources ();
+      else                m_crystals += cell.resources ();
+    }
+  }
+
+  //const int score_to_win = (iam.score () + enemy.score () + m_crystals) / 2;
+  //if (iam.score () + iam.ants_cnt () * )
+
+  for (cell_t &cell : m_cells) {
+    if (cell.resources () > 0) {
+      m_aims.push_back (&cell);
+    }
+  }
+
+  double eggs_koef = 1. * iam.bases ().size ();
+  if (iam.ants_cnt () <= enemy.ants_cnt ()) {
+    if (m_crystals > CRYSTAL_PER_ANT_TO_MAXIMIZE_EGGS * iam.ants_cnt ())
+      eggs_koef *= EGGS_KOEF_LV_MAX;
+    else
+      eggs_koef *= EGGS_KOEF_LV_MAX_BUT_NO_CRYSTALS;
+  }
+  else {
+    if (m_crystals > CRYSTAL_PER_ANT_TO_MAXIMIZE_EGGS * iam.ants_cnt ())
+      eggs_koef *= EGGS_KOEF_LV_NORMAL;
+    else
+      eggs_koef *= EGGS_KOEF_LV_NORMAL_BUT_NO_CRYSTALS;
+  }
+
+  double crystals_koef = 1.;
+
+  for (cell_t * const aim_cell : m_aims)
+    aim_cell->set_resources_value (eggs_koef, crystals_koef);
 }
 void game_t::compute_enemy_chain () {
   const player_t &enemy = m_players[1];
@@ -251,6 +311,9 @@ void game_t::compute_enemy_chain () {
 void game_t::fill_beacons () {
   player_t &iam = m_players[0];
   std::unordered_map<cell_t*, int> path;
+  //std::vector<std::unordered_map<cell_t*, int>> lines;
+  //std::unordered_map<cell_t*, int> *new_line;
+
   for (cell_t * const base_cell : iam.bases ()) {
     path.insert ({base_cell, 1});
     iam.use_ants (1);
@@ -269,6 +332,7 @@ void game_t::fill_beacons () {
     candidates.clear ();
     for (const auto &path_el : path) {
       const cell_t * const cell_from = path_el.first;
+      //int enemy_line_power =
       for (cell_t * const next_cell : cell_from->neighs ())
         if (!path.count (&*next_cell)) {
           const auto it_ins = candidates.insert ({&*next_cell, temp_data_t {INF, 0, cell_from}});
@@ -280,10 +344,10 @@ void game_t::fill_beacons () {
             const int dist_to_aim = dist (new_cell->id (), aim_cell->id ());
             if (new_cell_data.min_dis > dist_to_aim) {
               new_cell_data.min_dis = dist_to_aim;
-              new_cell_data.val_cnt = aim_cell->resources ();
+              new_cell_data.val_cnt = aim_cell->resources_value ();
             }
             else if (new_cell_data.min_dis == dist_to_aim)
-              new_cell_data.val_cnt += aim_cell->resources ();
+              new_cell_data.val_cnt += aim_cell->resources_value ();
           }
         }
     }
