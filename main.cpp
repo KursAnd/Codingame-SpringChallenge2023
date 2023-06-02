@@ -42,7 +42,7 @@ public:
   inline bool is_egg () const { return m_type == 1 && m_resources > 0; }
   inline int resources () const { return m_resources; }
   inline int resources_value () const { return m_resources_value; }
-  inline int ants (const int player_id) { return m_ants[player_id]; }
+  inline int ants (const int player_id) { return m_ants_cnt[player_id]; }
   inline void add_beacon (const int val = 1) { m_beacon += val; }
   inline int set_min_beacon (const int min_val) { const int add_val = std::max (min_val - m_beacon, 0); m_beacon += add_val; return add_val; }
   inline void set_chain_parent (const cell_t * const parent) { if (!parent) m_chain_len = 0; else { m_chain_len = parent->m_chain_len + 1; m_chain_parent = parent; }}
@@ -53,15 +53,15 @@ private:
   int m_resources = -1;
   int m_resources_value = -1;
   int m_beacon = -1;
-  std::array<int, NEIGH_SIZE> m_neigh;
-  std::array<int, PLAYER_SIZE> m_ants;
 
+  std::array<int, NEIGH_SIZE> m_neigh_cell_ids;
   std::vector<cell_t*> m_neigh_cells;
+
+  std::array<int, PLAYER_SIZE> m_ants_cnt;
+  std::array<int, PLAYER_SIZE> m_ants_chain_power;
 
   int m_chain_len = -1; // for computing on step
   const cell_t *m_chain_parent = nullptr; // for computing on step
-
-  std::array<int, PLAYER_SIZE> m_ants_chain_power;
 };
 class map_t {
 public:
@@ -76,7 +76,7 @@ public:
   void init (const int id, const int number_of_bases, std::vector<cell_t> &cells);
   void read_score () { std::cin >> m_score; std::cin.ignore (); };
   void update_step (std::vector<cell_t> &cells);
-  inline const std::vector<cell_t*> &bases () const { return m_bases; }
+  inline const std::vector<cell_t*> &bases () const { return m_base_cells; }
   inline int ants_cnt () const { return m_ants_cnt; }
   inline int ants_cnt_free () const { return m_ants_cnt_free; }
   inline void use_ants (const int cnt) { m_ants_cnt_free -= cnt; }
@@ -84,12 +84,12 @@ public:
   inline int score () const { return m_score; }
 private:
   int m_id = INVALID_ID;
-  std::vector<cell_t*> m_bases;
+  std::vector<cell_t*> m_base_cells;
   int m_score = -1;
 
   int m_ants_cnt;
   int m_ants_cnt_free;
-  std::vector<cell_t*> m_ants; // size != ants count
+  std::vector<cell_t*> m_ants_cells; // size != ants count
 };
 class game_t {
 public:
@@ -100,12 +100,12 @@ private:
   std::vector<cell_t> m_cells;
   std::array<player_t, PLAYER_SIZE> m_players;
   std::unique_ptr<map_t> m_map;
-  std::vector<cell_t *> m_aims;
+  std::vector<cell_t *> m_all_aim_cells;
   std::vector<cell_t *> m_egg_cells;
-  int m_crystals = -1;
-  int m_eggs = -1;
+  int m_crystals_cnt = -1;
+  int m_eggs_cnt = -1;
 
-  bool m_inital_read = true;
+  bool m_inital_read_flag = true;
   std::vector<cell_t *> m_initial_aims; // for each base
 
   void compute_aims ();
@@ -130,14 +130,14 @@ void cell_t::init (const int id, std::vector<cell_t> &cells) {
   m_id = id;
   m_neigh_cells.reserve (NEIGH_SIZE);
   std::cin >> m_type >> m_resources; std::cin.ignore ();
-  for (int &neigh_id : m_neigh) {
+  for (int &neigh_id : m_neigh_cell_ids) {
     std::cin >> neigh_id, std::cin.ignore ();
     if (neigh_id != INVALID_ID)
       m_neigh_cells.push_back (&cells[neigh_id]);
   }
 }
 void cell_t::read () {
-  std::cin >> m_resources >> m_ants[0] >> m_ants[1]; std::cin.ignore ();
+  std::cin >> m_resources >> m_ants_cnt[0] >> m_ants_cnt[1]; std::cin.ignore ();
   m_resources_value = 0;
   m_beacon = 0;
   for (int &ants_chain_power : m_ants_chain_power)
@@ -177,21 +177,21 @@ map_t::map_t (const std::vector<cell_t> &cells)
 
 void player_t::init (const int id, const int number_of_bases, std::vector<cell_t> &cells) {
   m_id = id;
-  m_bases.reserve (number_of_bases);
+  m_base_cells.reserve (number_of_bases);
   for (int i_base = 0; i_base < number_of_bases; i_base++) {
     int i_cell;
     std::cin >> i_cell; std::cin.ignore ();
-    m_bases.push_back (&cells[i_cell]);
+    m_base_cells.push_back (&cells[i_cell]);
   }
 }
 
 void player_t::update_step (std::vector<cell_t> &cells) {
   m_ants_cnt = 0;
-  m_ants.clear ();
+  m_ants_cells.clear ();
   for (cell_t &cell : cells)
     if (cell.ants (m_id) > 0) {
       m_ants_cnt += cell.ants (m_id);
-      m_ants.push_back (&cell);
+      m_ants_cells.push_back (&cell);
     }
   m_ants_cnt_free = m_ants_cnt;
 }
@@ -202,7 +202,7 @@ game_t::game_t () {
   m_cells.resize (number_of_cells);
   for (int i_cell = 0; i_cell < number_of_cells; ++i_cell)
     m_cells[i_cell].init (i_cell, m_cells);
-  m_aims.reserve (number_of_cells);
+  m_all_aim_cells.reserve (number_of_cells);
   m_egg_cells.reserve (number_of_cells);
   int number_of_bases;
   std::cin >> number_of_bases; std::cin.ignore ();
@@ -213,10 +213,10 @@ game_t::game_t () {
 void game_t::read_step () {
   start_step_timer ();
   m_actions_text = "";
-  m_aims.clear ();
+  m_all_aim_cells.clear ();
   m_egg_cells.clear ();
-  m_crystals = 0;
-  m_eggs = 0;
+  m_crystals_cnt = 0;
+  m_eggs_cnt = 0;
   for (player_t &player : m_players)
     player.read_score ();
 
@@ -224,17 +224,17 @@ void game_t::read_step () {
     cell.read ();
     if (cell.is_egg ()) {
       m_egg_cells.push_back (&cell);
-      m_eggs += cell.resources ();
+      m_eggs_cnt += cell.resources ();
     }
     else if (cell.resources () > 0) {
-      m_crystals += cell.resources ();
+      m_crystals_cnt += cell.resources ();
     }
   }
 
   for (player_t &player : m_players)
     player.update_step (m_cells);
 
-  if (m_inital_read) {
+  if (m_inital_read_flag) {
     const cell_t *last_best_base = nullptr;
     const cell_t *last_best_egg = nullptr;
     std::vector<const cell_t *> my_bases_to_find_aim;
@@ -276,7 +276,7 @@ void game_t::read_step () {
     }
     if (m_initial_aims.size () == m_egg_cells.size () && m_egg_cells.size () == 2)
       m_initial_aims.pop_back ();
-    m_inital_read = false;
+    m_inital_read_flag = false;
   }
 }
 void game_t::play_step () {
@@ -299,25 +299,25 @@ void game_t::compute_aims () {
         break;
       }
 
-    if (stop_initial_aims || (m_crystals < m_eggs && iam.ants_cnt () > enemy.ants_cnt () * 1.2) || m_crystals < iam.ants_cnt ())
+    if (stop_initial_aims || (m_crystals_cnt < m_eggs_cnt && iam.ants_cnt () > enemy.ants_cnt () * 1.2) || m_crystals_cnt < iam.ants_cnt ())
       m_initial_aims.clear ();
     else {
       for (cell_t * const aim_cell : m_initial_aims) {
-        m_aims.push_back (aim_cell);
+        m_all_aim_cells.push_back (aim_cell);
         aim_cell->set_resources_value (1./*eggs_koef*/, 1./*crystals_koef*/);
       }
       return;
     }
   }
 
-  const int score_to_win = (iam.score () + enemy.score () + m_crystals) / 2;
+  const int score_to_win = (iam.score () + enemy.score () + m_crystals_cnt) / 2;
   const bool stop_collect_eggs = iam.score () + iam.ants_cnt () * ANTS_STOP_COLLECT_EGGS >= score_to_win;
 
   for (cell_t &cell : m_cells) {
     if (cell.resources () > 0) {
       if (stop_collect_eggs && cell.is_egg ())
         continue;
-      m_aims.push_back (&cell);
+      m_all_aim_cells.push_back (&cell);
     }
   }
 
@@ -334,11 +334,11 @@ void game_t::compute_aims () {
   //  else
   //    eggs_koef *= EGGS_KOEF_LV_NORMAL_BUT_NO_CRYSTALS;
   //}
-  eggs_koef = 1. * m_crystals / m_eggs * iam.bases ().size ();
+  eggs_koef = 1. * m_crystals_cnt / m_eggs_cnt * iam.bases ().size ();
 
   double crystals_koef = 1.;
 
-  for (cell_t * const aim_cell : m_aims)
+  for (cell_t * const aim_cell : m_all_aim_cells)
     aim_cell->set_resources_value (eggs_koef, crystals_koef);
 }
 void game_t::compute_ants_chain_power () {
@@ -400,14 +400,14 @@ void game_t::fill_beacons () {
     //base_cell->set_min_beacon (1);
   }
 
-  std::unordered_set<cell_t *> aims (m_aims.begin (), m_aims.end ());
+  std::unordered_set<cell_t *> all_aim_cells (m_all_aim_cells.begin (), m_all_aim_cells.end ());
   struct temp_data_t {
     int min_dis, val_cnt;
     const cell_t * const parent;
   };
   std::unordered_map<cell_t *, temp_data_t> candidates;
 
-  while (!aims.empty () && iam.ants_cnt_free () > 0) {
+  while (!all_aim_cells.empty () && iam.ants_cnt_free () > 0) {
     candidates.clear ();
     for (const auto &path_el : path) {
       const cell_t * const cell_from = path_el.first;
@@ -419,7 +419,7 @@ void game_t::fill_beacons () {
             continue;
           const cell_t * const new_cell = it_ins.first->first;
           temp_data_t &new_cell_data = it_ins.first->second;
-          for (const cell_t * const aim_cell : aims) {
+          for (const cell_t * const aim_cell : all_aim_cells) {
             const int dist_to_aim = dist (new_cell->id (), aim_cell->id ());
             if (new_cell_data.min_dis > dist_to_aim) {
               new_cell_data.min_dis = dist_to_aim;
@@ -446,7 +446,7 @@ void game_t::fill_beacons () {
     //add_cell->set_min_beacon (parent_cell->beacon ());
     path.insert ({add_cell, 1});
     iam.use_ants (1);
-    if (aims.erase (add_cell) > 0) { // we found aim
+    if (all_aim_cells.erase (add_cell) > 0) { // we found aim
       //const int max_cnt = add_cell->resources ();
 
       // TO-DO: count ants
