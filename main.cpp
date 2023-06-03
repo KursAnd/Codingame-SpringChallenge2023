@@ -267,7 +267,6 @@ void game_t::read_step () {
           }
         }
       }
-      std::cerr << best_egg->id () << " " << best_dist << std::endl;
       if (best_dist > 4 || best_dist * 3 > m_players[0].ants_cnt ())
         break;
       last_best_base = best_base;
@@ -321,7 +320,7 @@ void game_t::compute_aims () {
     }
   }
 
-  double eggs_koef = 1. * iam.bases ().size ();
+  [[maybe_unused]]double eggs_koef = 1. * iam.bases ().size ();
   //if (iam.ants_cnt () <= enemy.ants_cnt ()) {
   //  if (m_crystals > CRYSTAL_PER_ANT_TO_MAXIMIZE_EGGS * iam.ants_cnt ())
   //    eggs_koef *= EGGS_KOEF_LV_MAX;
@@ -388,14 +387,17 @@ void game_t::compute_ants_chain_power () {
 }
 void game_t::fill_beacons () {
   player_t &iam = m_players[0];
-  std::unordered_map<cell_t*, int> path;
-  //std::vector<std::unordered_map<cell_t*, int>> lines;
-  //std::unordered_map<cell_t*, int> *new_line;
+  player_t &enemy = m_players[1];
+  std::unordered_set<cell_t*> path;
+  std::vector<std::unordered_set<cell_t*>> lines;
+  std::unordered_set<cell_t*> new_line;
   //bool beacon_to_base = true; // TO-DO: don't set beackon on base if eggs reached
+  // TO-DO: идти к тем кристалам что ближе к врагу, те что далеко можно будет собрать в последний момент
+  // TO-DO: выдавать "персональные" задания каждому муравью прям на 1 клеточку чтобы шли как надо
 
   for (cell_t * const base_cell : iam.bases ()) {
-    path.insert ({base_cell, 1});
-    iam.use_ants (1);
+    path.insert (base_cell);
+    //iam.use_ants (1);
     base_cell->set_chain_parent (nullptr);
     //base_cell->set_min_beacon (1);
   }
@@ -403,33 +405,34 @@ void game_t::fill_beacons () {
   std::unordered_set<cell_t *> all_aim_cells (m_all_aim_cells.begin (), m_all_aim_cells.end ());
   struct temp_data_t {
     int min_dis, val_cnt;
-    const cell_t * const parent;
+    cell_t * const parent;
   };
   std::unordered_map<cell_t *, temp_data_t> candidates;
 
   while (!all_aim_cells.empty () && iam.ants_cnt_free () > 0) {
     candidates.clear ();
-    for (const auto &path_el : path) {
-      const cell_t * const cell_from = path_el.first;
-      //int enemy_line_power =
-      for (cell_t * const next_cell : cell_from->neighs ())
-        if (!path.count (&*next_cell)) {
-          const auto it_ins = candidates.insert ({&*next_cell, temp_data_t {INF, 0, cell_from}});
-          if (!it_ins.second)
-            continue;
-          const cell_t * const new_cell = it_ins.first->first;
-          temp_data_t &new_cell_data = it_ins.first->second;
-          for (const cell_t * const aim_cell : all_aim_cells) {
-            const int dist_to_aim = dist (new_cell->id (), aim_cell->id ());
-            if (new_cell_data.min_dis > dist_to_aim) {
-              new_cell_data.min_dis = dist_to_aim;
-              new_cell_data.val_cnt = aim_cell->resources_value ();
+
+    for (const auto &path_cells : {path, new_line})
+      for (cell_t * const cell_from : path_cells) {
+        //int enemy_line_power =
+        for (cell_t * const next_cell : cell_from->neighs ())
+          if (!path.count (next_cell) && !new_line.count (next_cell)) {
+            const auto it_ins = candidates.insert ({next_cell, temp_data_t {INF, 0, cell_from}});
+            if (!it_ins.second)
+              continue;
+            const cell_t * const new_cell = it_ins.first->first;
+            temp_data_t &new_cell_data = it_ins.first->second;
+            for (const cell_t * const aim_cell : all_aim_cells) {
+              const int dist_to_aim = dist (new_cell->id (), aim_cell->id ());
+              if (new_cell_data.min_dis > dist_to_aim) {
+                new_cell_data.min_dis = dist_to_aim;
+                new_cell_data.val_cnt = aim_cell->resources_value ();
+              }
+              else if (new_cell_data.min_dis == dist_to_aim)
+                new_cell_data.val_cnt += aim_cell->resources_value ();
             }
-            else if (new_cell_data.min_dis == dist_to_aim)
-              new_cell_data.val_cnt += aim_cell->resources_value ();
           }
-        }
-    }
+      }
     if (candidates.empty ())
       break;
     const auto &best_cond_it = std::min_element (candidates.begin (), candidates.end (),
@@ -444,21 +447,40 @@ void game_t::fill_beacons () {
     const cell_t * const parent_cell = best_cond_it->second.parent;
     add_cell->set_chain_parent (parent_cell);
     //add_cell->set_min_beacon (parent_cell->beacon ());
-    path.insert ({add_cell, 1});
-    iam.use_ants (1);
+    if (new_line.empty ())
+      new_line.insert (best_cond_it->second.parent);
+    new_line.insert (add_cell);
+    //iam.use_ants (1);
     if (all_aim_cells.erase (add_cell) > 0) { // we found aim
       //const int max_cnt = add_cell->resources ();
 
-      // TO-DO: count ants
+      const int line_beacon_per_cell = 1 + (*std::max_element (
+          new_line.begin (), new_line.end (),
+          [&enemy] (const cell_t * const a, const cell_t * const b) {
+            return a->ants_chain_power (enemy.id ()) < b->ants_chain_power (enemy.id ()); }
+        ))->ants_chain_power (enemy.id ());
+      int ants_need_to_use = 0;
+      for (const cell_t * const cell : new_line)
+        if (cell->beacon () < line_beacon_per_cell)
+          ants_need_to_use += line_beacon_per_cell - cell->beacon ();
+
+      if (ants_need_to_use > iam.ants_cnt_free ())
+        continue;
+
+      for (cell_t * const cell : new_line)
+        set_min_beacon (*cell, line_beacon_per_cell);
+      path.insert (new_line.begin (), new_line.end ());
+      lines.emplace_back (new_line);
+      new_line.clear ();
     }
     //std::cerr << "# " << add_cell->id () << " " << best_cond_it->second.min_dis << " " << best_cond_it->second.val_cnt << std::endl;
   }
 
-  for (const auto &path_el : path) {
-    cell_t * const cell = path_el.first;
-    const int beacon = path_el.second;
-    cell->set_min_beacon (beacon);
-  }
+  // for (const auto &path_el : path) {
+  //   cell_t * const cell = path_el.first;
+  //   const int beacon = path_el.second;
+  //   cell->set_min_beacon (beacon);
+  // }
 
   for (const cell_t &cell : m_cells)
     if (cell.beacon () > 0)
