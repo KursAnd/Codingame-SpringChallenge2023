@@ -15,6 +15,7 @@
 #include <queue>
 #include <unordered_set>
 #include <unordered_map>
+#include <set>
 
 constexpr int NEIGH_SIZE = 6;
 constexpr int PLAYER_SIZE = 2;
@@ -44,7 +45,7 @@ public:
   inline int resources_value () const { return m_resources_value; }
   inline int ants (const int player_id) { return m_ants_cnt[player_id]; }
   inline void add_beacon (const int val = 1) { m_beacon += val; }
-  inline int set_min_beacon (const int min_val) { const int add_val = std::max (min_val - m_beacon, 0); m_beacon += add_val; return add_val; }
+  inline int set_min_beacon (const int beacon);
   inline void set_chain_parent (const cell_t * const parent) { if (!parent) m_chain_len = 0; else { m_chain_len = parent->m_chain_len + 1; m_chain_parent = parent; }}
   inline void set_ants_chain_power (const int player_id, const int ants_chain_power) { m_ants_chain_power[player_id] = ants_chain_power; }
 private:
@@ -77,20 +78,25 @@ public:
   void read_score () { std::cin >> m_score; std::cin.ignore (); };
   void update_step (std::vector<cell_t> &cells);
   inline const std::vector<cell_t*> &bases () const { return m_base_cells; }
+  inline const std::set<cell_t*> &bases_set () const { return m_base_set_cells; }
   inline int ants_cnt () const { return m_ants_cnt; }
   inline int ants_cnt_free () const { return m_ants_cnt_free; }
+  inline int ants_cnt_add_next_step () const { return m_ants_cnt_add_next_step; }
   inline void use_ants (const int cnt) { m_ants_cnt_free -= cnt; }
   inline int id () const { return m_id; }
   inline int score () const { return m_score; }
 private:
   int m_id = INVALID_ID;
   std::vector<cell_t*> m_base_cells;
+  std::set<cell_t*> m_base_set_cells;
   player_t *m_enemy;
   int m_score = -1;
 
   int m_ants_cnt;
   int m_ants_cnt_free;
   std::vector<cell_t*> m_ants_cells; // size != ants count
+
+  int m_ants_cnt_add_next_step = 0;
 };
 class game_t {
 public:
@@ -152,6 +158,12 @@ void cell_t::set_resources_value (const double eggs_koef, const double crystals_
   m_resources_value = m_resources * koef;
 }
 
+int cell_t::set_min_beacon (const int beacon) {
+  const int add_val = std::max (beacon - m_beacon, 0);
+  m_beacon += add_val;
+  return add_val;
+}
+
 map_t::map_t (const std::vector<cell_t> &cells)
  : m_dist (std::vector<std::vector<int>> (cells.size (), std::vector<int> (cells.size (), INF)))
  , m_cells (cells) {
@@ -183,19 +195,24 @@ void player_t::init (const int id, const int number_of_bases, std::vector<cell_t
     int i_cell;
     std::cin >> i_cell; std::cin.ignore ();
     m_base_cells.push_back (&cells[i_cell]);
+    m_base_set_cells.insert (&cells[i_cell]);
   }
   m_enemy = enemy;
 }
 
 void player_t::update_step (std::vector<cell_t> &cells) {
   m_ants_cnt = 0;
+  m_ants_cnt_add_next_step = 0;
   m_ants_cells.clear ();
   for (cell_t &cell : cells)
     if (cell.ants (m_id) > 0) {
       m_ants_cnt += cell.ants (m_id);
       m_ants_cells.push_back (&cell);
+      if (cell.is_egg () && cell.ants_chain_power (m_id) > 0)
+        m_ants_cnt_add_next_step += std::min (cell.resources (), cell.ants_chain_power (m_id));
     }
   m_ants_cnt_free = m_ants_cnt;
+  m_ants_cnt_add_next_step *= m_base_cells.size ();
 }
 
 game_t::game_t () {
@@ -233,6 +250,7 @@ void game_t::read_step () {
     }
   }
 
+  compute_ants_chain_power ();
   for (player_t &player : m_players)
     player.update_step (m_cells);
 
@@ -281,7 +299,6 @@ void game_t::read_step () {
   }
 }
 void game_t::play_step () {
-  compute_ants_chain_power ();
   compute_aims ();
   fill_beacons ();
   commit_wait ();
@@ -393,15 +410,13 @@ void game_t::fill_beacons () {
   std::unordered_set<cell_t*> path;
   std::vector<std::unordered_set<cell_t*>> lines;
   std::unordered_set<cell_t*> new_line;
-  //bool beacon_to_base = true; // TO-DO: don't set beackon on base if eggs reached
   // TO-DO: идти к тем кристалам что ближе к врагу, те что далеко можно будет собрать в последний момент
   // TO-DO: выдавать "персональные" задания каждому муравью прям на 1 клеточку чтобы шли как надо
+  // TO-DO: полностью поменять систему выбора куда бежать, добавить атаку на чужие клетки
 
   for (cell_t * const base_cell : iam.bases ()) {
     path.insert (base_cell);
-    //iam.use_ants (1);
     base_cell->set_chain_parent (nullptr);
-    //base_cell->set_min_beacon (1);
   }
 
   std::unordered_set<cell_t *> all_aim_cells (m_all_aim_cells.begin (), m_all_aim_cells.end ());
@@ -416,7 +431,6 @@ void game_t::fill_beacons () {
 
     for (const auto &path_cells : {path, new_line})
       for (cell_t * const cell_from : path_cells) {
-        //int enemy_line_power =
         for (cell_t * const next_cell : cell_from->neighs ())
           if (!path.count (next_cell) && !new_line.count (next_cell)) {
             const auto it_ins = candidates.insert ({next_cell, temp_data_t {INF, 0, cell_from}});
@@ -448,14 +462,10 @@ void game_t::fill_beacons () {
     cell_t * const add_cell = best_cond_it->first;
     const cell_t * const parent_cell = best_cond_it->second.parent;
     add_cell->set_chain_parent (parent_cell);
-    //add_cell->set_min_beacon (parent_cell->beacon ());
     if (new_line.empty ())
       new_line.insert (best_cond_it->second.parent);
     new_line.insert (add_cell);
-    //iam.use_ants (1);
-    if (all_aim_cells.erase (add_cell) > 0) { // we found aim
-      //const int max_cnt = add_cell->resources ();
-
+    if (all_aim_cells.erase (add_cell) > 0) {
       const int line_beacon_per_cell = 1 + (*std::max_element (
           new_line.begin (), new_line.end (),
           [&enemy] (const cell_t * const a, const cell_t * const b) {
@@ -471,18 +481,13 @@ void game_t::fill_beacons () {
 
       for (cell_t * const cell : new_line)
         set_min_beacon (*cell, line_beacon_per_cell);
+
       path.insert (new_line.begin (), new_line.end ());
       lines.emplace_back (new_line);
       new_line.clear ();
     }
     //std::cerr << "# " << add_cell->id () << " " << best_cond_it->second.min_dis << " " << best_cond_it->second.val_cnt << std::endl;
   }
-
-  // for (const auto &path_el : path) {
-  //   cell_t * const cell = path_el.first;
-  //   const int beacon = path_el.second;
-  //   cell->set_min_beacon (beacon);
-  // }
 
   for (const cell_t &cell : m_cells)
     if (cell.beacon () > 0)
