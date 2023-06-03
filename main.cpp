@@ -73,7 +73,7 @@ private:
 };
 class player_t {
 public:
-  void init (const int id, const int number_of_bases, std::vector<cell_t> &cells);
+  void init (const int id, const int number_of_bases, std::vector<cell_t> &cells, player_t * const enemy);
   void read_score () { std::cin >> m_score; std::cin.ignore (); };
   void update_step (std::vector<cell_t> &cells);
   inline const std::vector<cell_t*> &bases () const { return m_base_cells; }
@@ -85,6 +85,7 @@ public:
 private:
   int m_id = INVALID_ID;
   std::vector<cell_t*> m_base_cells;
+  player_t *m_enemy;
   int m_score = -1;
 
   int m_ants_cnt;
@@ -175,7 +176,7 @@ map_t::map_t (const std::vector<cell_t> &cells)
   }
 }
 
-void player_t::init (const int id, const int number_of_bases, std::vector<cell_t> &cells) {
+void player_t::init (const int id, const int number_of_bases, std::vector<cell_t> &cells, player_t * const enemy) {
   m_id = id;
   m_base_cells.reserve (number_of_bases);
   for (int i_base = 0; i_base < number_of_bases; i_base++) {
@@ -183,6 +184,7 @@ void player_t::init (const int id, const int number_of_bases, std::vector<cell_t
     std::cin >> i_cell; std::cin.ignore ();
     m_base_cells.push_back (&cells[i_cell]);
   }
+  m_enemy = enemy;
 }
 
 void player_t::update_step (std::vector<cell_t> &cells) {
@@ -207,7 +209,7 @@ game_t::game_t () {
   int number_of_bases;
   std::cin >> number_of_bases; std::cin.ignore ();
   for (int i_player = 0; i_player < PLAYER_SIZE; i_player++)
-    m_players[i_player].init (i_player, number_of_bases, m_cells);
+    m_players[i_player].init (i_player, number_of_bases, m_cells, &m_players[(i_player + 1) % 2]);
   m_map = std::make_unique<map_t> (m_cells);
 }
 void game_t::read_step () {
@@ -320,7 +322,7 @@ void game_t::compute_aims () {
     }
   }
 
-  [[maybe_unused]]double eggs_koef = 1. * iam.bases ().size ();
+  double eggs_koef = 1. * iam.bases ().size ();
   //if (iam.ants_cnt () <= enemy.ants_cnt ()) {
   //  if (m_crystals > CRYSTAL_PER_ANT_TO_MAXIMIZE_EGGS * iam.ants_cnt ())
   //    eggs_koef *= EGGS_KOEF_LV_MAX;
