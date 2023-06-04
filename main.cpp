@@ -39,6 +39,7 @@ public:
   inline int id () const { return m_id; }
   inline int beacon () const { return m_beacon; }
   inline int ants_chain_power (const int player_id) const { return m_ants_chain_power[player_id]; }
+  inline cell_t *chain_parent () { return m_chain_parent; }
   inline const std::vector<cell_t*> &neighs () const { return m_neigh_cells; }
   inline bool is_egg () const { return m_type == 1 && m_resources > 0; }
   inline int resources () const { return m_resources; }
@@ -46,7 +47,7 @@ public:
   inline int ants (const int player_id) { return m_ants_cnt[player_id]; }
   inline void add_beacon (const int val = 1) { m_beacon += val; }
   inline int set_min_beacon (const int beacon);
-  inline void set_chain_parent (const cell_t * const parent) { if (!parent) m_chain_len = 0; else { m_chain_len = parent->m_chain_len + 1; m_chain_parent = parent; }}
+  inline void set_chain_parent (cell_t * const parent) { if (!parent) m_chain_len = 0; else { m_chain_len = parent->m_chain_len + 1; m_chain_parent = parent; }}
   inline void set_ants_chain_power (const int player_id, const int ants_chain_power) { m_ants_chain_power[player_id] = ants_chain_power; }
 private:
   int m_id = INVALID_ID;
@@ -62,7 +63,7 @@ private:
   std::array<int, PLAYER_SIZE> m_ants_chain_power;
 
   int m_chain_len = -1; // for computing on step
-  const cell_t *m_chain_parent = nullptr; // for computing on step
+  cell_t *m_chain_parent = nullptr; // for computing on step
 };
 class map_t {
 public:
@@ -460,7 +461,7 @@ void game_t::fill_beacons () {
         return dist (a.first->id (), iam.bases ().front ()->id ()) < dist (b.first->id (), iam.bases ().front ()->id ());
       });
     cell_t * const add_cell = best_cond_it->first;
-    const cell_t * const parent_cell = best_cond_it->second.parent;
+    cell_t * const parent_cell = best_cond_it->second.parent;
     add_cell->set_chain_parent (parent_cell);
     if (new_line.empty ())
       new_line.insert (best_cond_it->second.parent);
@@ -472,9 +473,12 @@ void game_t::fill_beacons () {
             return a->ants_chain_power (enemy.id ()) < b->ants_chain_power (enemy.id ()); }
         ))->ants_chain_power (enemy.id ());
       int ants_need_to_use = 0;
-      for (const cell_t * const cell : new_line)
-        if (cell->beacon () < line_beacon_per_cell)
-          ants_need_to_use += line_beacon_per_cell - cell->beacon ();
+      cell_t *temp_cell = add_cell;
+      while (temp_cell) {
+        if (temp_cell->beacon () < line_beacon_per_cell)
+          ants_need_to_use += line_beacon_per_cell - temp_cell->beacon ();
+        temp_cell = temp_cell->chain_parent ();
+      }
 
       //std::cerr << add_cell->id () << ": " << line_beacon_per_cell << " " << ants_need_to_use << "/" << iam.ants_cnt_free ();
       if (ants_need_to_use > iam.ants_cnt_free ()) {
@@ -484,8 +488,11 @@ void game_t::fill_beacons () {
       }
       //std::cerr << std::endl;
 
-      for (cell_t * const cell : new_line)
-        set_min_beacon (*cell, line_beacon_per_cell);
+      temp_cell = add_cell;
+      while (temp_cell) {
+        set_min_beacon (*temp_cell, line_beacon_per_cell);
+        temp_cell = temp_cell->chain_parent ();
+      }
 
       path.insert (new_line.begin (), new_line.end ());
       lines.emplace_back (new_line);
