@@ -476,8 +476,13 @@ void game_t::fill_beacons () {
         if (cell->beacon () < line_beacon_per_cell)
           ants_need_to_use += line_beacon_per_cell - cell->beacon ();
 
-      if (ants_need_to_use > iam.ants_cnt_free ())
+      //std::cerr << add_cell->id () << ": " << line_beacon_per_cell << " " << ants_need_to_use << "/" << iam.ants_cnt_free ();
+      if (ants_need_to_use > iam.ants_cnt_free ()) {
+        //std::cerr << " stop" << std::endl;
+        new_line.clear ();
         continue;
+      }
+      //std::cerr << std::endl;
 
       for (cell_t * const cell : new_line)
         set_min_beacon (*cell, line_beacon_per_cell);
