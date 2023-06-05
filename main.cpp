@@ -409,96 +409,93 @@ void game_t::fill_beacons () {
   player_t &iam = m_players[0];
   player_t &enemy = m_players[1];
   std::unordered_set<cell_t*> path;
-  std::vector<std::unordered_set<cell_t*>> lines;
-  std::unordered_set<cell_t*> new_line;
-  // TO-DO: идти к тем кристалам что ближе к врагу, те что далеко можно будет собрать в последний момент
-  // TO-DO: выдавать "персональные" задания каждому муравью прям на 1 клеточку чтобы шли как надо
-  // TO-DO: полностью поменять систему выбора куда бежать, добавить атаку на чужие клетки
-
   for (cell_t * const base_cell : iam.bases ()) {
     path.insert (base_cell);
     base_cell->set_chain_parent (nullptr);
   }
 
+  std::vector<std::unordered_set<cell_t*>> lines; lines.reserve (m_all_aim_cells.size ());
+  //std::unordered_set<cell_t*> new_line;
+  // TO-DO: идти к тем кристалам что ближе к врагу, те что далеко можно будет собрать в последний момент
+  // TO-DO: выдавать "персональные" задания каждому муравью прям на 1 клеточку чтобы шли как надо
+  // TO-DO: полностью поменять систему выбора куда бежать, добавить атаку на чужие клетки
+
   std::unordered_set<cell_t *> all_aim_cells (m_all_aim_cells.begin (), m_all_aim_cells.end ());
   struct temp_data_t {
-    int min_dis, val_cnt;
-    cell_t * const parent;
+    cell_t * const aim_cell;
+    int ants_need_to_use, need_chain_power;
+    double koef;
   };
-  std::unordered_map<cell_t *, temp_data_t> candidates;
+  std::vector<temp_data_t> aim_paths; aim_paths.reserve (all_aim_cells.size ());
+  //std::vector<temp_data_t> aim_egg_paths; aim_egg_paths.reserve (all_aim_cells.size ());
+  //std::vector<temp_data_t> aim_crystal_paths; aim_crystal_paths.reserve (all_aim_cells.size ());
 
   while (!all_aim_cells.empty () && iam.ants_cnt_free () > 0) {
-    candidates.clear ();
-
-    for (const auto &path_cells : {path, new_line})
-      for (cell_t * const cell_from : path_cells) {
-        for (cell_t * const next_cell : cell_from->neighs ())
-          if (!path.count (next_cell) && !new_line.count (next_cell)) {
-            const auto it_ins = candidates.insert ({next_cell, temp_data_t {INF, 0, cell_from}});
-            if (!it_ins.second)
-              continue;
-            const cell_t * const new_cell = it_ins.first->first;
-            temp_data_t &new_cell_data = it_ins.first->second;
-            for (const cell_t * const aim_cell : all_aim_cells) {
-              const int dist_to_aim = dist (new_cell->id (), aim_cell->id ());
-              if (new_cell_data.min_dis > dist_to_aim) {
-                new_cell_data.min_dis = dist_to_aim;
-                new_cell_data.val_cnt = aim_cell->resources_value ();
-              }
-              else if (new_cell_data.min_dis == dist_to_aim)
-                new_cell_data.val_cnt += aim_cell->resources_value ();
-            }
+    aim_paths.clear ();
+    //aim_egg_paths.clear ();
+    //aim_crystal_paths.clear ();
+    for (cell_t * const aim_cell : all_aim_cells) {
+      int best_dist = INF;
+      cell_t *cur_cell = nullptr;
+      for (cell_t * const cell_from : path) {
+        const int temp_dist = dist (cell_from->id (), aim_cell->id ());
+        if (best_dist > temp_dist || (best_dist == temp_dist && cell_from->beacon () > cur_cell->beacon ())) {
+          best_dist = temp_dist;
+          cur_cell = cell_from;
+        }
+      }
+      while (cur_cell != aim_cell) {
+        best_dist = dist (cur_cell->id (), aim_cell->id ());
+        for (cell_t * const next_cell : cur_cell->neighs ()) {
+          const int temp_dist = dist (next_cell->id (), aim_cell->id ());
+          if (best_dist > temp_dist || (best_dist == temp_dist && next_cell->beacon () > cur_cell->beacon ())) {
+            best_dist = temp_dist;
+            next_cell->set_chain_parent (cur_cell);
+            cur_cell = next_cell;
           }
+        }
       }
-    if (candidates.empty ())
-      break;
-    const auto &best_cond_it = std::min_element (candidates.begin (), candidates.end (),
-      [this, &iam] (const auto &a, const auto &b) {
-        if (a.second.min_dis != b.second.min_dis)
-          return a.second.min_dis < b.second.min_dis;
-        if (a.second.val_cnt != b.second.val_cnt)
-          return a.second.val_cnt > b.second.val_cnt;
-        return dist (a.first->id (), iam.bases ().front ()->id ()) < dist (b.first->id (), iam.bases ().front ()->id ());
-      });
-    cell_t * const add_cell = best_cond_it->first;
-    cell_t * const parent_cell = best_cond_it->second.parent;
-    add_cell->set_chain_parent (parent_cell);
-    if (new_line.empty ())
-      new_line.insert (best_cond_it->second.parent);
-    new_line.insert (add_cell);
-    if (all_aim_cells.erase (add_cell) > 0) {
-      const int line_beacon_per_cell = 1 + (*std::max_element (
-          new_line.begin (), new_line.end (),
-          [&enemy] (const cell_t * const a, const cell_t * const b) {
-            return a->ants_chain_power (enemy.id ()) < b->ants_chain_power (enemy.id ()); }
-        ))->ants_chain_power (enemy.id ());
+
+      int enemy_chain_power = 0;
+      cell_t *cur_chain_cell = aim_cell;
+      while (cur_chain_cell) {
+        enemy_chain_power = std::max (enemy_chain_power, cur_chain_cell->ants_chain_power (enemy.id ()));
+        cur_chain_cell = cur_chain_cell->chain_parent ();
+      }
+
+      const int need_chain_power = 1 + enemy_chain_power;
       int ants_need_to_use = 0;
-      cell_t *temp_cell = add_cell;
-      while (temp_cell) {
-        if (temp_cell->beacon () < line_beacon_per_cell)
-          ants_need_to_use += line_beacon_per_cell - temp_cell->beacon ();
-        temp_cell = temp_cell->chain_parent ();
+      cur_chain_cell = aim_cell;
+      while (cur_chain_cell) {
+        if (cur_chain_cell->beacon () < need_chain_power)
+          ants_need_to_use += need_chain_power - cur_chain_cell->beacon ();
+        cur_chain_cell = cur_chain_cell->chain_parent ();
       }
 
-      //std::cerr << add_cell->id () << ": " << line_beacon_per_cell << " " << ants_need_to_use << "/" << iam.ants_cnt_free ();
-      if (ants_need_to_use > iam.ants_cnt_free ()) {
-        //std::cerr << " stop" << std::endl;
-        new_line.clear ();
-        continue;
+      if (iam.ants_cnt_free () >= ants_need_to_use) {
+        aim_paths.push_back (temp_data_t{aim_cell, ants_need_to_use, need_chain_power, 1. * ants_need_to_use / aim_cell->resources_value ()});
       }
-      //std::cerr << std::endl;
-
-      temp_cell = add_cell;
-      while (temp_cell) {
-        set_min_beacon (*temp_cell, line_beacon_per_cell);
-        temp_cell = temp_cell->chain_parent ();
-      }
-
-      path.insert (new_line.begin (), new_line.end ());
-      lines.emplace_back (new_line);
-      new_line.clear ();
     }
-    //std::cerr << "# " << add_cell->id () << " " << best_cond_it->second.min_dis << " " << best_cond_it->second.val_cnt << std::endl;
+
+    if (aim_paths.empty ())
+      break;
+
+    const auto best_el = std::min_element (aim_paths.begin (), aim_paths.end (),
+      [] (const temp_data_t &a, const temp_data_t &b) {
+        return a.koef < b.koef;
+      });
+    const int need_chain_power = best_el->need_chain_power;
+    //std::cerr << best_el->aim_cell->id () << ": " << best_el->ants_need_to_use << " " << best_el->need_chain_power << " " << best_el->koef;;
+
+    cell_t *cur_chain_cell = best_el->aim_cell;
+    while (cur_chain_cell) {
+      set_min_beacon (*cur_chain_cell, need_chain_power);
+      path.insert (cur_chain_cell);
+      cur_chain_cell = cur_chain_cell->chain_parent ();
+    }
+    //std::cerr << " " << iam.ants_cnt_free () << std::endl;
+
+    all_aim_cells.erase (best_el->aim_cell);
   }
 
   for (const cell_t &cell : m_cells)
