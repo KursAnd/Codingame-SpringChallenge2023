@@ -473,7 +473,10 @@ void game_t::fill_beacons () {
       }
 
       if (iam.ants_cnt_free () >= ants_need_to_use) {
-        aim_paths.push_back (temp_data_t{aim_cell, ants_need_to_use, need_chain_power, 1. * ants_need_to_use / aim_cell->resources_value ()});
+        double koef = 1. * ants_need_to_use / aim_cell->resources_value ();
+        if (aim_cell->is_egg ())
+          koef *= 1. * iam.ants_cnt () / enemy.ants_cnt ();
+        aim_paths.push_back (temp_data_t{aim_cell, ants_need_to_use, need_chain_power, koef});
       }
     }
 
