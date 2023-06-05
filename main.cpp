@@ -404,6 +404,7 @@ void game_t::fill_beacons () {
 
   std::vector<std::unordered_set<cell_t*>> lines; lines.reserve (m_all_aim_cells.size ());
   std::unordered_set<cell_t *> all_aim_cells (m_all_aim_cells.begin (), m_all_aim_cells.end ());
+  std::vector<cell_t *> aims_reached;
   struct temp_data_t {
     cell_t * const aim_cell;
     int ants_need_to_use, need_chain_power, ants_need_to_come;
@@ -478,7 +479,23 @@ void game_t::fill_beacons () {
     }
 
     all_aim_cells.erase (best_el->aim_cell);
+    aims_reached.push_back (best_el->aim_cell);
   }
+
+  if (!aims_reached.empty ())
+    while (iam.ants_cnt_free () > 0)
+      for (cell_t * const aim_cell : aims_reached) {
+        if (iam.ants_cnt_free () <= 0)
+          break;
+        const int increased_beacons = aim_cell->beacon () + 1;
+        cell_t *cur_chain_cell = aim_cell;
+        while (cur_chain_cell) {
+          if (iam.ants_cnt_free () <= 0 || cur_chain_cell->beacon () >= increased_beacons)
+            break;
+          set_min_beacon (*cur_chain_cell, increased_beacons);
+          cur_chain_cell = cur_chain_cell->chain_parent ();
+        }
+      }
 
   for (const cell_t &cell : m_cells)
     if (cell.beacon () > 0)
