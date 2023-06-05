@@ -341,18 +341,6 @@ void game_t::compute_aims () {
   }
 
   double eggs_koef = 1. * iam.bases ().size ();
-  //if (iam.ants_cnt () <= enemy.ants_cnt ()) {
-  //  if (m_crystals > CRYSTAL_PER_ANT_TO_MAXIMIZE_EGGS * iam.ants_cnt ())
-  //    eggs_koef *= EGGS_KOEF_LV_MAX;
-  //  else
-  //    eggs_koef *= EGGS_KOEF_LV_MAX_BUT_NO_CRYSTALS;
-  //}
-  //else {
-  //  if (m_crystals > CRYSTAL_PER_ANT_TO_MAXIMIZE_EGGS * iam.ants_cnt ())
-  //    eggs_koef *= EGGS_KOEF_LV_NORMAL;
-  //  else
-  //    eggs_koef *= EGGS_KOEF_LV_NORMAL_BUT_NO_CRYSTALS;
-  //}
   eggs_koef = 1. * m_crystals_cnt / m_eggs_cnt * iam.bases ().size ();
 
   double crystals_koef = 1.;
@@ -422,13 +410,9 @@ void game_t::fill_beacons () {
     double koef;
   };
   std::vector<temp_data_t> aim_paths; aim_paths.reserve (all_aim_cells.size ());
-  //std::vector<temp_data_t> aim_egg_paths; aim_egg_paths.reserve (all_aim_cells.size ());
-  //std::vector<temp_data_t> aim_crystal_paths; aim_crystal_paths.reserve (all_aim_cells.size ());
 
   while (!all_aim_cells.empty () && iam.ants_cnt_free () > 0) {
     aim_paths.clear ();
-    //aim_egg_paths.clear ();
-    //aim_crystal_paths.clear ();
     for (cell_t * const aim_cell : all_aim_cells) {
       int best_dist = INF;
       cell_t *cur_cell = nullptr;
@@ -485,7 +469,6 @@ void game_t::fill_beacons () {
         return a.koef < b.koef;
       });
     const int need_chain_power = best_el->need_chain_power;
-    //std::cerr << best_el->aim_cell->id () << ": " << best_el->ants_need_to_use << " " << best_el->need_chain_power << " " << best_el->koef;;
 
     cell_t *cur_chain_cell = best_el->aim_cell;
     while (cur_chain_cell) {
@@ -493,7 +476,6 @@ void game_t::fill_beacons () {
       path.insert (cur_chain_cell);
       cur_chain_cell = cur_chain_cell->chain_parent ();
     }
-    //std::cerr << " " << iam.ants_cnt_free () << std::endl;
 
     all_aim_cells.erase (best_el->aim_cell);
   }
