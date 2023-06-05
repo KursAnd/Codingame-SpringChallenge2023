@@ -415,15 +415,10 @@ void game_t::fill_beacons () {
   }
 
   std::vector<std::unordered_set<cell_t*>> lines; lines.reserve (m_all_aim_cells.size ());
-  //std::unordered_set<cell_t*> new_line;
-  // TO-DO: идти к тем кристалам что ближе к врагу, те что далеко можно будет собрать в последний момент
-  // TO-DO: выдавать "персональные" задания каждому муравью прям на 1 клеточку чтобы шли как надо
-  // TO-DO: полностью поменять систему выбора куда бежать, добавить атаку на чужие клетки
-
   std::unordered_set<cell_t *> all_aim_cells (m_all_aim_cells.begin (), m_all_aim_cells.end ());
   struct temp_data_t {
     cell_t * const aim_cell;
-    int ants_need_to_use, need_chain_power;
+    int ants_need_to_use, need_chain_power, ants_need_to_come;
     double koef;
   };
   std::vector<temp_data_t> aim_paths; aim_paths.reserve (all_aim_cells.size ());
@@ -465,18 +460,20 @@ void game_t::fill_beacons () {
 
       const int need_chain_power = 1 + enemy_chain_power;
       int ants_need_to_use = 0;
+      int ants_need_to_come = 0;
       cur_chain_cell = aim_cell;
       while (cur_chain_cell) {
         if (cur_chain_cell->beacon () < need_chain_power)
           ants_need_to_use += need_chain_power - cur_chain_cell->beacon ();
+        ants_need_to_come += need_chain_power - cur_chain_cell->ants (iam.id ());
         cur_chain_cell = cur_chain_cell->chain_parent ();
       }
 
       if (iam.ants_cnt_free () >= ants_need_to_use) {
-        double koef = 1. * ants_need_to_use / aim_cell->resources_value ();
+        double koef = 1. * ants_need_to_come / aim_cell->resources_value ();
         if (aim_cell->is_egg ())
-          koef *= 1. * iam.ants_cnt () / enemy.ants_cnt ();
-        aim_paths.push_back (temp_data_t{aim_cell, ants_need_to_use, need_chain_power, koef});
+          koef *= 1.5 * iam.ants_cnt () / enemy.ants_cnt ();
+        aim_paths.push_back (temp_data_t{aim_cell, ants_need_to_use, need_chain_power, ants_need_to_come, koef});
       }
     }
 
